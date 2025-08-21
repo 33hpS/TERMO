@@ -23,8 +23,9 @@ const copyStaticFiles = () => {
     fs.cpSync(publicDir, distDir, { recursive: true })
   }
   
-  // Создание правильного index.html
-  const htmlContent = `<!DOCTYPE html>
+  // Копирование index.html
+  const htmlContent = `
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -38,67 +39,11 @@ const copyStaticFiles = () => {
 </head>
 <body>
     <div id="app"></div>
-    <script type="module" src="/js/main.js"></script>
+    <script src="/js/main.js"></script>
 </body>
 </html>`
   
   fs.writeFileSync(path.join(distDir, 'index.html'), htmlContent)
-  
-  // Создание файла _headers для Cloudflare Pages
-  const headersContent = `# Заголовки для статических файлов
-/js/*.js
-  Content-Type: application/javascript
-  Cache-Control: public, max-age=31536000
-
-/js/*.js.map
-  Content-Type: application/json
-  Cache-Control: public, max-age=31536000
-
-/*.css
-  Content-Type: text/css
-  Cache-Control: public, max-age=31536000
-
-/*.html
-  Content-Type: text/html; charset=utf-8
-  Cache-Control: public, max-age=3600
-
-/*.svg
-  Content-Type: image/svg+xml
-  Cache-Control: public, max-age=31536000
-
-/*.png
-  Content-Type: image/png
-  Cache-Control: public, max-age=31536000
-
-/*.jpg
-  Content-Type: image/jpeg  
-  Cache-Control: public, max-age=31536000
-
-/*.jpeg
-  Content-Type: image/jpeg
-  Cache-Control: public, max-age=31536000
-
-/*.ico
-  Content-Type: image/x-icon
-  Cache-Control: public, max-age=31536000
-
-# Безопасность
-/*
-  X-Frame-Options: DENY
-  X-Content-Type-Options: nosniff
-  X-XSS-Protection: 1; mode=block
-  Referrer-Policy: strict-origin-when-cross-origin`
-
-  // Создание файла _redirects для SPA маршрутизации
-  const redirectsContent = `# SPA маршрутизация - все несуществующие маршруты отправляем на index.html
-/* /index.html 200
-
-# Принудительное перенаправление для старых файлов
-/main.css /index.html 200
-/main.js /js/main.js 301`
-
-  fs.writeFileSync(path.join(distDir, '_headers'), headersContent)
-  fs.writeFileSync(path.join(distDir, '_redirects'), redirectsContent)
 }
 
 copyStaticFiles()
@@ -129,7 +74,7 @@ const buildConfig = {
   ],
   loader: {
     '.tsx': 'tsx',
-    '.ts': 'tsx', 
+    '.ts': 'tsx',
     '.js': 'jsx',
     '.svg': 'dataurl',
     '.png': 'dataurl',
