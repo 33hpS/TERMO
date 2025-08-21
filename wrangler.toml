@@ -1,0 +1,22 @@
+name = "thermo-labels-app"
+compatibility_date = "2024-01-01"
+
+[build]
+command = "npm run build"
+cwd = "."
+watch_dir = "src"
+
+[build.upload]
+format = "directory"
+dir = "dist"
+
+[env.production]
+vars = { NODE_ENV = "production" }
+
+[env.development]
+vars = { NODE_ENV = "development" }
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
