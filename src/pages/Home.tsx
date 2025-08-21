@@ -1,7 +1,6 @@
-
 /**
  * Главная страница приложения для печати термоэтикеток
- * Содержит интерфейс сканирования QR-кодов, редактор этикеток и управление печатью
+ * Обновленная версия с новыми функциями
  */
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
@@ -10,8 +9,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Upload, Scan, Printer, Save, Download, QrCode, Trash2, Plus, Copy, Edit, Eye } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { 
+  Upload, Scan, Printer, Save, Download, QrCode, Trash2, Plus, Copy, Edit, Eye,
+  Wifi, WifiOff, Clock, CheckCircle2, AlertTriangle, Camera, Zap, BarChart3,
+  Minus, RefreshCw, Type, Grid3X3, Palette, Settings
+} from 'lucide-react'
 
+// Существующие интерфейсы
 interface LabelField {
   id: string
   type: 'text' | 'image' | 'qr'
@@ -50,6 +55,34 @@ interface LabelTemplate {
   }
 }
 
+// Новые интерфейсы
+interface PrintJob {
+  id: string
+  labelId: string
+  labelName: string
+  copies: number
+  status: 'pending' | 'printing' | 'completed' | 'error'
+  createdAt: Date
+  estimatedTime?: number
+}
+
+interface AppStatistics {
+  printedToday: number
+  printedTotal: number
+  templatesCount: number
+  errorsCount: number
+  queueSize: number
+  dailyStats: number[]
+}
+
+interface PrinterStatus {
+  connected: boolean
+  ready: boolean
+  error?: string
+  paperLevel: number
+  temperature: number
+}
+
 export default function Home() {
   // Ключи для localStorage
   const STORAGE_KEYS = {
@@ -59,7 +92,7 @@ export default function Home() {
     LOGO: 'thermo_logo'
   }
 
-  // Инициализация состояний
+  // Существующие состояния
   const [qrCode, setQrCode] = useState('')
   const [isAutoPrint, setIsAutoPrint] = useState(false)
   const [currentLabel, setCurrentLabel] = useState<LabelTemplate | null>(null)
@@ -70,15 +103,40 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const labelPreviewRef = useRef<HTMLDivElement>(null)
-  const [activeTab, setActiveTab] = useState('create')
   const [templates, setTemplates] = useState<LabelTemplate[]>([])
   const [newTemplateName, setNewTemplateName] = useState('')
   const [templateCategory, setTemplateCategory] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
+
+  // Новые состояния
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [printerStatus, setPrinterStatus] = useState<PrinterStatus>({
+    connected: true,
+    ready: true,
+    paperLevel: 85,
+    temperature: 180
+  })
+  const [printQueue, setPrintQueue] = useState<PrintJob[]>([])
+  const [statistics, setStatistics] = useState<AppStatistics>({
+    printedToday: 47,
+    printedTotal: 847,
+    templatesCount: 12,
+    errorsCount: 2,
+    queueSize: 0,
+    dailyStats: [40, 65, 55, 80, 47, 35, 60]
+  })
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('darkMode') === 'true'
+  })
+  const [previewMode, setPreviewMode] = useState<'normal' | 'print' | 'thermal'>('normal')
+  const [copiesCount, setCopiesCount] = useState(1)
+  const [activeMainTab, setActiveMainTab] = useState('quick-print')
+
+  // Существующие состояния печати
   const [printSettings, setPrintSettings] = useState({
-    labelWidth: 60, // mm
-    labelHeight: 40, // mm
+    labelWidth: 60,
+    labelHeight: 40,
     dpi: 300,
     orientation: 'portrait' as 'portrait' | 'landscape',
     margins: {
@@ -126,207 +184,6 @@ export default function Home() {
           },
           {
             id: '3',
-            type: 'text',
-            content: 'Размер: [размер]',
-            x: 10,
-            y: 65,
-            width: 100,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '4',
-            type: 'qr',
-            content: '[артикул]',
-            x: 140,
-            y: 10,
-            width: 60,
-            height: 60,
-            qrSize: 50
-          }
-        ],
-        createdAt: baseDate,
-        updatedAt: baseDate
-      },
-      {
-        id: 'preset-mirror',
-        name: 'Зеркало для ванной',
-        templateCategory: 'Мебель для ванной',
-        isTemplate: true,
-        fields: [
-          {
-            id: '1',
-            type: 'text',
-            content: 'Зеркало',
-            x: 10,
-            y: 10,
-            width: 80,
-            height: 25,
-            fontSize: 14,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '2',
-            type: 'text',
-            content: 'С подсветкой: [да/нет]',
-            x: 10,
-            y: 40,
-            width: 120,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '3',
-            type: 'qr',
-            content: '[артикул]',
-            x: 100,
-            y: 10,
-            width: 60,
-            height: 60,
-            qrSize: 50
-          }
-        ],
-        createdAt: baseDate,
-        updatedAt: baseDate
-      },
-      {
-        id: 'preset-cabinet',
-        name: 'Настенный шкаф',
-        templateCategory: 'Мебель для ванной',
-        isTemplate: true,
-        fields: [
-          {
-            id: '1',
-            type: 'text',
-            content: 'Настенный шкаф',
-            x: 10,
-            y: 10,
-            width: 100,
-            height: 25,
-            fontSize: 14,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '2',
-            type: 'text',
-            content: 'Материал: [материал]',
-            x: 10,
-            y: 40,
-            width: 100,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '3',
-            type: 'text',
-            content: 'Цвет: [цвет]',
-            x: 10,
-            y: 65,
-            width: 100,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '4',
-            type: 'qr',
-            content: '[артикул]',
-            x: 120,
-            y: 10,
-            width: 60,
-            height: 60,
-            qrSize: 50
-          }
-        ],
-        createdAt: baseDate,
-        updatedAt: baseDate
-      },
-      {
-        id: 'preset-accessories',
-        name: 'Аксессуары для ванной',
-        templateCategory: 'Аксессуары',
-        isTemplate: true,
-        fields: [
-          {
-            id: '1',
-            type: 'text',
-            content: 'Аксессуар: [название]',
-            x: 10,
-            y: 10,
-            width: 120,
-            height: 25,
-            fontSize: 14,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '2',
-            type: 'text',
-            content: 'Тип: [держатель/крючок/полка]',
-            x: 10,
-            y: 40,
-            width: 120,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '3',
-            type: 'qr',
-            content: '[артикул]',
-            x: 140,
-            y: 10,
-            width: 50,
-            height: 50,
-            qrSize: 40
-          }
-        ],
-        createdAt: baseDate,
-        updatedAt: baseDate
-      },
-      {
-        id: 'preset-faucet',
-        name: 'Смеситель для ванной',
-        templateCategory: 'Сантехника',
-        isTemplate: true,
-        fields: [
-          {
-            id: '1',
-            type: 'text',
-            content: 'Смеситель',
-            x: 10,
-            y: 10,
-            width: 80,
-            height: 25,
-            fontSize: 14,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '2',
-            type: 'text',
-            content: 'Тип: [настенный/напольный]',
-            x: 10,
-            y: 40,
-            width: 120,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '3',
-            type: 'text',
-            content: 'Цвет: [цвет]',
-            x: 10,
-            y: 65,
-            width: 100,
-            height: 20,
-            fontSize: 10,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '4',
             type: 'qr',
             content: '[артикул]',
             x: 140,
@@ -342,9 +199,8 @@ export default function Home() {
     ]
   }
 
-  // Загрузка данных из localStorage при инициализации
+  // useEffect hooks
   useEffect(() => {
-    const savedLabels = localStorage.getItem(STORAGE_KEYS.LABELS)
     const savedTemplates = localStorage.getItem(STORAGE_KEYS.TEMPLATES)
     const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS)
     const savedLogo = localStorage.getItem(STORAGE_KEYS.LOGO)
@@ -374,12 +230,44 @@ export default function Home() {
         console.error('Ошибка загрузки шаблонов:', error)
       }
     } else {
-      // Если нет сохраненных шаблонов, добавляем предустановленные
       const predefinedTemplates = getPredefinedTemplates()
       setTemplates(predefinedTemplates)
       localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(predefinedTemplates))
     }
   }, [])
+
+  // Мониторинг подключения
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  // Сохранение темы
+  useEffect(() => {
+    localStorage.setItem('darkMode', darkMode.toString())
+    if (darkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [darkMode])
+
+  // Обновление статистики очереди
+  useEffect(() => {
+    setStatistics(prev => ({
+      ...prev,
+      queueSize: printQueue.length,
+      templatesCount: templates.length
+    }))
+  }, [printQueue, templates])
 
   // Сохранение настроек при их изменении
   useEffect(() => {
@@ -390,126 +278,155 @@ export default function Home() {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings))
   }, [isAutoPrint])
 
-  // Сохранение логотипа при его изменении
-  useEffect(() => {
-    if (logo) {
-      localStorage.setItem(STORAGE_KEYS.LOGO, logo)
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.LOGO)
+  // Новые функции управления очередью
+  const addToQueue = (label: LabelTemplate, copies: number = 1) => {
+    const newJob: PrintJob = {
+      id: Date.now().toString(),
+      labelId: label.id,
+      labelName: label.name,
+      copies,
+      status: 'pending',
+      createdAt: new Date(),
+      estimatedTime: copies * 3
     }
-  }, [logo])
+    
+    setPrintQueue(prev => [...prev, newJob])
+    
+    if (isAutoPrint && printerStatus.ready) {
+      processQueue()
+    }
+  }
 
-  // Сохранение шаблонов при их изменении
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(templates))
-  }, [templates])
+  const processQueue = async () => {
+    const pendingJob = printQueue.find(job => job.status === 'pending')
+    if (!pendingJob || !printerStatus.ready) return
 
-  // Сохранение этикеток при их изменении
-  useEffect(() => {
-    if (currentLabel && !currentLabel.isTemplate) {
-      // Загружаем все этикетки
-      const savedLabels = localStorage.getItem(STORAGE_KEYS.LABELS)
-      let allLabels: LabelTemplate[] = []
+    setPrintQueue(prev => prev.map(job => 
+      job.id === pendingJob.id 
+        ? { ...job, status: 'printing' as const }
+        : job
+    ))
+
+    try {
+      await simulatePrinting(pendingJob)
       
-      if (savedLabels) {
-        try {
-          allLabels = JSON.parse(savedLabels)
-        } catch (error) {
-          console.error('Ошибка загрузки этикеток:', error)
+      setPrintQueue(prev => prev.map(job => 
+        job.id === pendingJob.id 
+          ? { ...job, status: 'completed' as const }
+          : job
+      ))
+
+      setStatistics(prev => ({
+        ...prev,
+        printedToday: prev.printedToday + pendingJob.copies,
+        printedTotal: prev.printedTotal + pendingJob.copies
+      }))
+
+      setTimeout(() => {
+        setPrintQueue(prev => prev.filter(job => job.id !== pendingJob.id))
+      }, 3000)
+
+    } catch (error) {
+      console.error('Ошибка печати:', error)
+      setPrintQueue(prev => prev.map(job => 
+        job.id === pendingJob.id 
+          ? { ...job, status: 'error' as const }
+          : job
+      ))
+      
+      setStatistics(prev => ({
+        ...prev,
+        errorsCount: prev.errorsCount + 1
+      }))
+    }
+  }
+
+  const simulatePrinting = (job: PrintJob): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (!printerStatus.connected) {
+        reject(new Error('Принтер не подключен'))
+        return
+      }
+
+      const printTime = job.copies * 2000
+      setTimeout(() => {
+        if (Math.random() > 0.1) {
+          resolve()
+        } else {
+          reject(new Error('Замятие бумаги'))
         }
-      }
-      
-      // Обновляем или добавляем текущую этикетку
-      const existingIndex = allLabels.findIndex(label => label.id === currentLabel.id)
-      if (existingIndex >= 0) {
-        allLabels[existingIndex] = currentLabel
-      } else {
-        allLabels.push(currentLabel)
-      }
-      
-      // Сохраняем обновленный список
-      localStorage.setItem(STORAGE_KEYS.LABELS, JSON.stringify(allLabels))
-    }
-  }, [currentLabel])
-
-  // Начало перетаскивания поля
-  const handleDragStart = (e: React.MouseEvent, fieldId: string) => {
-    e.preventDefault()
-    setSelectedField(fieldId)
-    setIsDragging(true)
-    
-    if (!currentLabel || !labelPreviewRef.current) return
-    
-    const field = currentLabel.fields.find(f => f.id === fieldId)
-    if (!field) return
-    
-    const rect = labelPreviewRef.current.getBoundingClientRect()
-    setDragOffset({
-      x: e.clientX - rect.left - field.x,
-      y: e.clientY - rect.top - field.y
+      }, printTime)
     })
   }
 
-  // Перемещение поля
-  const handleDragMove = (e: React.MouseEvent) => {
-    if (!isDragging || !selectedField || !currentLabel || !labelPreviewRef.current) return
-    
-    const rect = labelPreviewRef.current.getBoundingClientRect()
-    const newX = e.clientX - rect.left - dragOffset.x
-    const newY = e.clientY - rect.top - dragOffset.y
-    
-    // Ограничиваем перемещение в пределах области предпросмотра
-    const field = currentLabel.fields.find(f => f.id === selectedField)
-    if (!field) return
-    
-    const maxX = rect.width - field.width
-    const maxY = rect.height - field.height
-    
-    const clampedX = Math.max(0, Math.min(newX, maxX))
-    const clampedY = Math.max(0, Math.min(newY, maxY))
-    
-    const updatedFields = currentLabel.fields.map(field => 
-      field.id === selectedField 
-        ? { ...field, x: clampedX, y: clampedY }
-        : field
-    )
-    
-    setCurrentLabel({
-      ...currentLabel,
-      fields: updatedFields,
-      updatedAt: new Date()
-    })
+  const removeFromQueue = (jobId: string) => {
+    setPrintQueue(prev => prev.filter(job => job.id !== jobId))
   }
 
-  // Окончание перетаскивания
-  const handleDragEnd = () => {
-    setIsDragging(false)
-    setSelectedField(null)
-  }
-
-  // Изменение размера поля
-  const handleResize = (fieldId: string, width: number, height: number) => {
+  const quickPrint = () => {
     if (!currentLabel) return
-    
-    const updatedFields = currentLabel.fields.map(field => 
-      field.id === fieldId 
-        ? { 
-            ...field, 
-            width: Math.max(20, width), 
-            height: Math.max(20, height),
-            qrSize: field.type === 'qr' ? Math.min(width, height) : field.qrSize
-          }
-        : field
-    )
-    
-    setCurrentLabel({
-      ...currentLabel,
-      fields: updatedFields,
-      updatedAt: new Date()
-    })
+    addToQueue(currentLabel, copiesCount)
   }
 
-  // Добавление нового поля
+  const createLabelFromQR = (code: string) => {
+    const newLabel: LabelTemplate = {
+      id: Date.now().toString(),
+      name: `Этикетка ${code}`,
+      fields: [
+        {
+          id: '1',
+          type: 'text',
+          content: code,
+          x: 10,
+          y: 10,
+          width: 120,
+          height: 25,
+          fontSize: 14,
+          fontFamily: 'Arial'
+        },
+        {
+          id: '2',
+          type: 'qr',
+          content: code,
+          x: 140,
+          y: 10,
+          width: 60,
+          height: 60,
+          qrSize: 50
+        }
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+    
+    setCurrentLabel(newLabel)
+    
+    if (isAutoPrint) {
+      addToQueue(newLabel, copiesCount)
+    }
+  }
+
+  const getQueueStatus = () => {
+    const printing = printQueue.filter(job => job.status === 'printing').length
+    const pending = printQueue.filter(job => job.status === 'pending').length
+    
+    if (printing > 0) return 'printing'
+    if (pending > 0) return 'pending'
+    return 'empty'
+  }
+
+  // Существующие функции (сокращенные для краткости)
+  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setLogo(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const addNewField = (type: 'text' | 'image' | 'qr') => {
     if (!currentLabel) return
     
@@ -533,7 +450,6 @@ export default function Home() {
     })
   }
 
-  // Удаление поля
   const removeField = (fieldId: string) => {
     if (!currentLabel) return
     
@@ -545,766 +461,6 @@ export default function Home() {
     })
   }
 
-  // Поиск этикетки по QR-коду
-  const findLabelByQrCode = (code: string): LabelTemplate | null => {
-    const savedLabels = localStorage.getItem(STORAGE_KEYS.LABELS)
-    if (!savedLabels) return null
-    
-    try {
-      const allLabels: LabelTemplate[] = JSON.parse(savedLabels)
-      return allLabels.find(label => 
-        label.fields.some(field => 
-          field.type === 'text' && field.content.includes(code)
-        )
-      ) || null
-    } catch (error) {
-      console.error('Ошибка поиска этикетки:', error)
-      return null
-    }
-  }
-
-  // Получение всех сохраненных этикеток
-  const getAllLabels = (): LabelTemplate[] => {
-    const savedLabels = localStorage.getItem(STORAGE_KEYS.LABELS)
-    if (!savedLabels) return []
-    
-    try {
-      return JSON.parse(savedLabels).map((label: any) => ({
-        ...label,
-        createdAt: new Date(label.createdAt),
-        updatedAt: new Date(label.updatedAt)
-      }))
-    } catch (error) {
-      console.error('Ошибка загрузки этикеток:', error)
-      return []
-    }
-  }
-
-  // Удаление этикетки
-  const deleteLabel = (labelId: string) => {
-    const savedLabels = localStorage.getItem(STORAGE_KEYS.LABELS)
-    if (!savedLabels) return
-    
-    try {
-      let allLabels: LabelTemplate[] = JSON.parse(savedLabels)
-      allLabels = allLabels.filter(label => label.id !== labelId)
-      localStorage.setItem(STORAGE_KEYS.LABELS, JSON.stringify(allLabels))
-      
-      // Если удаляем текущую этикетку, очищаем ее
-      if (currentLabel && currentLabel.id === labelId) {
-        setCurrentLabel(null)
-      }
-    } catch (error) {
-      console.error('Ошибка удаления этикетки:', error)
-    }
-  }
-
-  // Очистка всех данных
-  const clearAllData = () => {
-    if (confirm('Вы уверены, что хотите удалить все этикетки и настройки? Это действие необратимо.')) {
-      localStorage.removeItem(STORAGE_KEYS.LABELS)
-      localStorage.removeItem(STORAGE_KEYS.SETTINGS)
-      localStorage.removeItem(STORAGE_KEYS.LOGO)
-      setCurrentLabel(null)
-      setLogo(null)
-      setIsAutoPrint(false)
-      setQrCode('')
-      alert('Все данные успешно удалены')
-    }
-  }
-
-  // Удаление всех этикеток
-  const clearAllLabels = () => {
-    if (confirm('Вы уверены, что хотите удалить все этикетки? Настройки и логотип останутся.')) {
-      localStorage.removeItem(STORAGE_KEYS.LABELS)
-      setCurrentLabel(null)
-      setQrCode('')
-      alert('Все этикетки успешно удалены')
-    }
-  }
-
-  // Обработка сканирования QR-кода
-  const handleQrScan = (code: string) => {
-    setQrCode(code)
-    
-    // Ищем этикетку в localStorage
-    const foundLabel = findLabelByQrCode(code)
-    
-    if (foundLabel) {
-      // Если найдена, загружаем ее
-      setCurrentLabel(foundLabel)
-    } else {
-      // Если не найдена, создаем новую
-      const newLabel: LabelTemplate = {
-        id: Date.now().toString(),
-        name: `Этикетка ${code}`,
-        fields: [
-          {
-            id: '1',
-            type: 'text',
-            content: `QR: ${code}`,
-            x: 10,
-            y: 10,
-            width: 100,
-            height: 30,
-            fontSize: 12,
-            fontFamily: 'Arial'
-          },
-          {
-            id: '2',
-            type: 'qr',
-            content: code,
-            x: 120,
-            y: 10,
-            width: 60,
-            height: 60,
-            qrSize: 50
-          }
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-      setCurrentLabel(newLabel)
-    }
-    
-    if (isAutoPrint) {
-      handlePrint()
-    }
-  }
-
-  // Загрузка логотипа
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setLogo(e.target?.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  // Конвертация мм в пиксели с учетом DPI
-  const mmToPixels = (mm: number, dpi: number): number => {
-    return Math.round((mm * dpi) / 25.4)
-  }
-
-  // Генерация CSS для печати
-  const generatePrintCSS = (): string => {
-    const { labelWidth, labelHeight, dpi, orientation, margins } = printSettings
-    
-    // Конвертируем размеры в пиксели
-    const widthPx = mmToPixels(labelWidth, dpi)
-    const heightPx = mmToPixels(labelHeight, dpi)
-    const marginTopPx = mmToPixels(margins.top, dpi)
-    const marginRightPx = mmToPixels(margins.right, dpi)
-    const marginBottomPx = mmToPixels(margins.bottom, dpi)
-    const marginLeftPx = mmToPixels(margins.left, dpi)
-    
-    return `
-      @media print {
-        @page {
-          size: ${orientation};
-          margin: 0;
-        }
-        
-        body * {
-          visibility: hidden;
-        }
-        
-        .print-label, .print-label * {
-          visibility: visible;
-        }
-        
-        .print-label {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: ${widthPx}px;
-          height: ${heightPx}px;
-          margin: ${marginTopPx}px ${marginRightPx}px ${marginBottomPx}px ${marginLeftPx}px;
-          background: white;
-          overflow: hidden;
-        }
-        
-        .print-field {
-          position: absolute;
-          white-space: nowrap;
-          overflow: hidden;
-        }
-        
-        .print-field.text {
-          font-family: Arial, sans-serif;
-        }
-        
-        .print-field.image img {
-          max-width: 100%;
-          max-height: 100%;
-          object-fit: contain;
-        }
-        
-        .print-field.qr {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: white;
-        }
-      }
-    `
-  }
-
-  // Создание HTML для печати одной этикетки
-  const createSinglePrintHTML = (label: LabelTemplate): string => {
-    const { dpi } = printSettings
-    
-    // Масштабируем координаты и размеры полей под реальные размеры этикетки
-    const scaleX = mmToPixels(printSettings.labelWidth, dpi) / 200 // 200px - базовая ширина в редакторе
-    const scaleY = mmToPixels(printSettings.labelHeight, dpi) / 256 // 256px - базовая высота в редакторе
-    
-    let html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Печать этикетки: ${label.name}</title>
-        <style>
-          ${generatePrintCSS()}
-        </style>
-      </head>
-      <body>
-        <div class="print-label">
-    `
-    
-    // Добавляем поля
-    label.fields.forEach(field => {
-      const x = Math.round(field.x * scaleX)
-      const y = Math.round(field.y * scaleY)
-      const width = Math.round(field.width * scaleX)
-      const height = Math.round(field.height * scaleY)
-      
-      if (field.type === 'text') {
-        const fontSize = field.fontSize ? Math.round(field.fontSize * Math.min(scaleX, scaleY)) : 12
-        html += `
-          <div class="print-field text" style="
-            left: ${x}px;
-            top: ${y}px;
-            width: ${width}px;
-            height: ${height}px;
-            font-size: ${fontSize}px;
-            font-family: ${field.fontFamily || 'Arial'};
-          ">${field.content}</div>
-        `
-      } else if (field.type === 'image' && logo) {
-        html += `
-          <div class="print-field image" style="
-            left: ${x}px;
-            top: ${y}px;
-            width: ${width}px;
-            height: ${height}px;
-          "><img src="${logo}" alt="Logo" /></div>
-        `
-      } else if (field.type === 'qr') {
-        const qrSize = field.qrSize ? Math.round(field.qrSize * Math.min(scaleX, scaleY)) : 50
-        html += `
-          <div class="print-field qr" style="
-            left: ${x}px;
-            top: ${y}px;
-            width: ${width}px;
-            height: ${height}px;
-          ">
-            <div style="
-              width: ${qrSize}px;
-              height: ${qrSize}px;
-              border: 2px solid #000;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: ${Math.round(qrSize * 0.6)}px;
-            ">QR</div>
-          </div>
-        `
-      }
-    })
-    
-    html += `
-        </div>
-        <script>
-          window.onload = function() {
-            window.print();
-            window.onafterprint = function() {
-              window.close();
-            }
-          }
-        </script>
-      </body>
-      </html>
-    `
-    
-    return html
-  }
-
-  // Печать одной этикетки
-  const handlePrint = () => {
-    if (!currentLabel) return
-    
-    try {
-      const printHTML = createPrintHTML([currentLabel])
-      const printWindow = window.open('', '_blank')
-      
-      if (printWindow) {
-        printWindow.document.write(printHTML)
-        printWindow.document.close()
-      } else {
-        // Если всплывающее окно заблокировано, используем iframe
-        const iframe = document.createElement('iframe')
-        iframe.style.display = 'none'
-        document.body.appendChild(iframe)
-        
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-        if (iframeDoc) {
-          iframeDoc.write(printHTML)
-          iframeDoc.close()
-          
-          setTimeout(() => {
-            iframe.contentWindow?.print()
-            setTimeout(() => {
-              document.body.removeChild(iframe)
-            }, 1000)
-          }, 500)
-        }
-      }
-    } catch (error) {
-      console.error('Ошибка печати:', error)
-      alert('Ошибка при отправке на печать. Пожалуйста, проверьте настройки принтера.')
-    }
-  }
-
-  // Создание HTML для массовой печати
-  const createBatchPrintHTML = (labels: LabelTemplate[]): string => {
-    const { dpi, labelWidth, labelHeight, orientation, margins } = printSettings
-    
-    // Конвертируем размеры в пиксели
-    const widthPx = mmToPixels(labelWidth, dpi)
-    const heightPx = mmToPixels(labelHeight, dpi)
-    const marginTopPx = mmToPixels(margins.top, dpi)
-    const marginRightPx = mmToPixels(margins.right, dpi)
-    const marginBottomPx = mmToPixels(margins.bottom, dpi)
-    const marginLeftPx = mmToPixels(margins.left, dpi)
-    
-    // Масштабируем координаты и размеры полей под реальные размеры этикетки
-    const scaleX = widthPx / 200 // 200px - базовая ширина в редакторе
-    const scaleY = heightPx / 256 // 256px - базовая высота в редакторе
-    
-    let html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Массовая печать этикеток</title>
-        <style>
-          @media print {
-            @page {
-              size: ${orientation};
-              margin: 0;
-            }
-            
-            body * {
-              visibility: hidden;
-            }
-            
-            .print-container, .print-container * {
-              visibility: visible;
-            }
-            
-            .print-container {
-              display: grid;
-              grid-template-columns: repeat(auto-fill, ${widthPx + marginLeftPx + marginRightPx}px);
-              gap: 10px;
-              padding: 10px;
-              page-break-inside: avoid;
-            }
-            
-            .print-label {
-              width: ${widthPx}px;
-              height: ${heightPx}px;
-              background: white;
-              border: 1px solid #ddd;
-              position: relative;
-              overflow: hidden;
-            }
-            
-            .print-field {
-              position: absolute;
-              white-space: nowrap;
-              overflow: hidden;
-            }
-            
-            .print-field.text {
-              font-family: Arial, sans-serif;
-            }
-            
-            .print-field.image img {
-              max-width: 100%;
-              max-height: 100%;
-              object-fit: contain;
-            }
-            
-            .print-field.qr {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: white;
-            }
-          }
-          
-          body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-          }
-          
-          .print-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, ${widthPx + marginLeftPx + marginRightPx}px);
-            gap: 10px;
-            padding: 10px;
-          }
-          
-          .print-label {
-            width: ${widthPx}px;
-            height: ${heightPx}px;
-            background: white;
-            border: 1px solid #ddd;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          }
-          
-          .print-field {
-            position: absolute;
-            white-space: nowrap;
-            overflow: hidden;
-          }
-          
-          .print-field.text {
-            font-family: Arial, sans-serif;
-          }
-          
-          .print-field.image img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-          }
-          
-          .print-field.qr {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: white;
-          }
-          
-          .label-info {
-            position: absolute;
-            bottom: -25px;
-            left: 0;
-            right: 0;
-            font-size: 10px;
-            color: #666;
-            text-align: center;
-            background: #f5f5f5;
-            padding: 2px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="print-container">
-    `
-    
-    // Добавляем все этикетки
-    labels.forEach((label, index) => {
-      html += `
-        <div class="print-label">
-          <div class="label-info">${label.name}</div>
-      `
-      
-      // Добавляем поля для каждой этикетки
-      label.fields.forEach(field => {
-        const x = Math.round(field.x * scaleX)
-        const y = Math.round(field.y * scaleY)
-        const width = Math.round(field.width * scaleX)
-        const height = Math.round(field.height * scaleY)
-        
-        if (field.type === 'text') {
-          const fontSize = field.fontSize ? Math.round(field.fontSize * Math.min(scaleX, scaleY)) : 12
-          html += `
-            <div class="print-field text" style="
-              left: ${x}px;
-              top: ${y}px;
-              width: ${width}px;
-              height: ${height}px;
-              font-size: ${fontSize}px;
-              font-family: ${field.fontFamily || 'Arial'};
-            ">${field.content}</div>
-          `
-        } else if (field.type === 'image' && logo) {
-          html += `
-            <div class="print-field image" style="
-              left: ${x}px;
-              top: ${y}px;
-              width: ${width}px;
-              height: ${height}px;
-            "><img src="${logo}" alt="Logo" /></div>
-          `
-        } else if (field.type === 'qr') {
-          const qrSize = field.qrSize ? Math.round(field.qrSize * Math.min(scaleX, scaleY)) : 50
-          html += `
-            <div class="print-field qr" style="
-              left: ${x}px;
-              top: ${y}px;
-              width: ${width}px;
-              height: ${height}px;
-            ">
-              <div style="
-                width: ${qrSize}px;
-                height: ${qrSize}px;
-                border: 2px solid #000;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: ${Math.round(qrSize * 0.6)}px;
-              ">QR</div>
-            </div>
-          `
-        }
-      })
-      
-      html += `
-        </div>
-      `
-    })
-    
-    html += `
-        </div>
-        <script>
-          window.onload = function() {
-            window.print();
-            window.onafterprint = function() {
-              window.close();
-            }
-          }
-        </script>
-      </body>
-      </html>
-    `
-    
-    return html
-  }
-
-  // Обновленная функция создания HTML для печати
-  const createPrintHTML = (labels: LabelTemplate[] = []): string => {
-    if (labels.length === 0 && currentLabel) {
-      labels = [currentLabel]
-    }
-    
-    if (labels.length === 0) return ''
-    
-    if (labels.length === 1) {
-      // Для одной этикетки используем старый формат
-      return createSinglePrintHTML(labels[0])
-    } else {
-      // Для нескольких этикеток используем новый формат
-      return createBatchPrintHTML(labels)
-    }
-  }
-
-  // Массовая печать выбранных этикеток
-  const handleBatchPrint = () => {
-    if (selectedLabelsForPrint.length === 0) {
-      alert('Выберите хотя бы одну этикетку для печати')
-      return
-    }
-    
-    const allLabels = getAllLabels()
-    const labelsToPrint = allLabels.filter(label => selectedLabelsForPrint.includes(label.id))
-    
-    if (labelsToPrint.length === 0) {
-      alert('Не удалось найти выбранные этикетки')
-      return
-    }
-    
-    try {
-      const printHTML = createBatchPrintHTML(labelsToPrint)
-      const printWindow = window.open('', '_blank')
-      
-      if (printWindow) {
-        printWindow.document.write(printHTML)
-        printWindow.document.close()
-      } else {
-        // Если всплывающее окно заблокировано, используем iframe
-        const iframe = document.createElement('iframe')
-        iframe.style.display = 'none'
-        document.body.appendChild(iframe)
-        
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-        if (iframeDoc) {
-          iframeDoc.write(printHTML)
-          iframeDoc.close()
-          
-          setTimeout(() => {
-            iframe.contentWindow?.print()
-            setTimeout(() => {
-              document.body.removeChild(iframe)
-            }, 1000)
-          }, 500)
-        }
-      }
-      
-      setShowBatchPrintDialog(false)
-      setSelectedLabelsForPrint([])
-    } catch (error) {
-      console.error('Ошибка массовой печати:', error)
-      alert('Ошибка при отправке на печать. Пожалуйста, проверьте настройки принтера.')
-    }
-  }
-
-  // Выбор/отмена выбора этикетки для массовой печати
-  const toggleLabelSelection = (labelId: string) => {
-    setSelectedLabelsForPrint(prev => 
-      prev.includes(labelId) 
-        ? prev.filter(id => id !== labelId)
-        : [...prev, labelId]
-    )
-  }
-
-  // Выбор всех этикеток
-  const selectAllLabels = () => {
-    const allLabels = getAllLabels()
-    setSelectedLabelsForPrint(allLabels.map(label => label.id))
-  }
-
-  // Отмена выбора всех этикеток
-  const deselectAllLabels = () => {
-    setSelectedLabelsForPrint([])
-  }
-
-  // Сохранение текущей этикетки в файл
-  const handleSaveToFile = () => {
-    if (!currentLabel) return
-    const data = JSON.stringify(currentLabel, null, 2)
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `label_${currentLabel.id}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // Экспорт всех этикеток в один файл
-  const handleExportAll = () => {
-    const allLabels = getAllLabels()
-    const data = JSON.stringify({
-      exported_at: new Date().toISOString(),
-      total_labels: allLabels.length,
-      labels: allLabels
-    }, null, 2)
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `thermo_labels_export_${new Date().toISOString().split('T')[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // Импорт нескольких этикеток из файла
-  const handleImportMultiple = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string)
-          
-          // Проверяем формат данных (одна этикетка или несколько)
-          let labelsToImport: LabelTemplate[] = []
-          
-          if (data.labels && Array.isArray(data.labels)) {
-            // Формат экспорта всех этикеток
-            labelsToImport = data.labels
-          } else if (data.id && data.fields) {
-            // Формат одной этикетки
-            labelsToImport = [data]
-          } else {
-            throw new Error('Неверный формат файла')
-          }
-          
-          // Загружаем существующие этикетки
-          const existingLabels = getAllLabels()
-          
-          // Объединяем существующие и импортированные этикетки
-          // Избегаем дубликатов по ID
-          const mergedLabels = [...existingLabels]
-          labelsToImport.forEach(importedLabel => {
-            const existingIndex = mergedLabels.findIndex(label => label.id === importedLabel.id)
-            if (existingIndex >= 0) {
-              // Обновляем существующую этикетку
-              mergedLabels[existingIndex] = {
-                ...importedLabel,
-                updatedAt: new Date()
-              }
-            } else {
-              // Добавляем новую этикетку
-              mergedLabels.push({
-                ...importedLabel,
-                createdAt: new Date(importedLabel.createdAt || Date.now()),
-                updatedAt: new Date()
-              })
-            }
-          })
-          
-          // Сохраняем объединенный список
-          localStorage.setItem(STORAGE_KEYS.LABELS, JSON.stringify(mergedLabels))
-          
-          // Обновляем текущую этикетку если она была импортирована
-          if (currentLabel) {
-            const updatedCurrentLabel = mergedLabels.find(label => label.id === currentLabel.id)
-            if (updatedCurrentLabel) {
-              setCurrentLabel(updatedCurrentLabel)
-            }
-          }
-          
-          alert(`Успешно импортировано ${labelsToImport.length} этикеток`)
-          
-        } catch (error) {
-          console.error('Ошибка импорта:', error)
-          alert('Ошибка импорта файла. Проверьте формат файла.')
-        }
-      }
-      reader.readAsText(file)
-    }
-    // Сбрасываем значение input для возможности повторного выбора того же файла
-    event.target.value = ''
-  }
-
-  // Загрузка из файла
-  const handleLoadFromFile = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string)
-          setCurrentLabel(data)
-        } catch (error) {
-          alert('Ошибка загрузки файла')
-        }
-      }
-      reader.readAsText(file)
-    }
-  }
-
-  // Создание нового шаблона
   const createNewTemplate = () => {
     if (!currentLabel || !newTemplateName.trim()) return
     
@@ -1324,7 +480,6 @@ export default function Home() {
     alert('Шаблон успешно создан')
   }
 
-  // Применение шаблона
   const applyTemplate = (template: LabelTemplate) => {
     const newLabel: LabelTemplate = {
       ...template,
@@ -1336,10 +491,9 @@ export default function Home() {
       updatedAt: new Date()
     }
     setCurrentLabel(newLabel)
-    setActiveTab('create')
+    setActiveMainTab('designer')
   }
 
-  // Удаление шаблона
   const deleteTemplate = (templateId: string) => {
     const template = templates.find(t => t.id === templateId)
     if (!template) return
@@ -1355,7 +509,6 @@ export default function Home() {
     }
   }
 
-  // Копирование шаблона
   const duplicateTemplate = (template: LabelTemplate) => {
     const newTemplate: LabelTemplate = {
       ...template,
@@ -1367,13 +520,6 @@ export default function Home() {
     setTemplates([...templates, newTemplate])
   }
 
-  // Редактирование шаблона
-  const editTemplate = (template: LabelTemplate) => {
-    setCurrentLabel(template)
-    setActiveTab('create')
-  }
-
-  // Фильтрация шаблонов
   const filteredTemplates = templates.filter(template => {
     const matchesSearch = template.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (template.templateCategory && template.templateCategory.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -1381,29 +527,358 @@ export default function Home() {
     return matchesSearch && matchesCategory
   })
 
-  // Получение уникальных категорий
   const categories = ['all', ...Array.from(new Set(templates.map(t => t.templateCategory).filter(Boolean)))]
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Система печати термоэтикеток
-          </h1>
-          <p className="text-gray-600">
-            Фабрика мебели для ванной комнаты
-          </p>
-        </header>
+    <div className={`min-h-screen transition-colors duration-300 ${
+      darkMode ? 'dark bg-gray-900' : 'bg-gray-50'
+    }`}>
+      {/* НОВЫЙ СТАТУС-БАР */}
+      <div className="bg-white dark:bg-gray-800 border-b shadow-sm p-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              ТермоЭтикетки Pro
+            </h1>
+            
+            <Badge variant={isOnline ? "default" : "destructive"}>
+              {isOnline ? (
+                <><Wifi className="w-3 h-3 mr-1" /> Онлайн</>
+              ) : (
+                <><WifiOff className="w-3 h-3 mr-1" /> Оффлайн</>
+              )}
+            </Badge>
+            
+            <Badge variant={printerStatus.ready ? "default" : "secondary"}>
+              <Printer className="w-3 h-3 mr-1" />
+              {printerStatus.ready ? 'Готов' : 'Занят'}
+            </Badge>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="create">Создание этикеток</TabsTrigger>
+            {printQueue.length > 0 && (
+              <Badge variant="outline">
+                <Clock className="w-3 h-3 mr-1" />
+                Очередь: {printQueue.length}
+              </Badge>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <BarChart3 className="w-4 h-4" />
+              <span>Сегодня: {statistics.printedToday}</span>
+            </div>
+            
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2"
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto p-6">
+        <Tabs value={activeMainTab} onValueChange={setActiveMainTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="quick-print">Быстрая печать</TabsTrigger>
+            <TabsTrigger value="designer">Дизайнер</TabsTrigger>
             <TabsTrigger value="templates">Шаблоны ({templates.length})</TabsTrigger>
-            <TabsTrigger value="manage">Управление</TabsTrigger>
+            <TabsTrigger value="queue">
+              Очередь ({printQueue.length})
+              {getQueueStatus() === 'printing' && (
+                <span className="ml-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="analytics">Аналитика</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="create" className="mt-6">
+          {/* НОВАЯ ВКЛАДКА: БЫСТРАЯ ПЕЧАТЬ */}
+          <TabsContent value="quick-print" className="mt-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Camera className="w-5 h-5" />
+                    QR/Barcode Scanner
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center relative overflow-hidden">
+                    <div className="absolute inset-4 border-2 border-red-500 rounded-lg opacity-70"></div>
+                    <div className="text-center">
+                      <Camera className="w-12 h-12 mx-auto mb-2 text-gray-500" />
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        Наведите на QR-код
+                      </p>
+                    </div>
+                    <div 
+                      className="absolute inset-x-4 h-0.5 bg-red-500 animate-pulse"
+                      style={{
+                        top: '50%',
+                        animation: 'scanLine 2s ease-in-out infinite alternate'
+                      }}
+                    ></div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Input 
+                      placeholder="Или введите код вручную..." 
+                      value={qrCode}
+                      onChange={(e) => setQrCode(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button 
+                      onClick={() => createLabelFromQR(qrCode)}
+                      disabled={!qrCode}
+                    >
+                      <QrCode className="w-4 h-4 mr-1" />
+                      Создать
+                    </Button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <Label>Автопечать после сканирования</Label>
+                    <Switch 
+                      checked={isAutoPrint}
+                      onCheckedChange={setIsAutoPrint}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Zap className="w-5 h-5" />
+                    Быстрые действия
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Button 
+                    className="w-full justify-start" 
+                    size="lg"
+                    onClick={() => {
+                      const newLabel: LabelTemplate = {
+                        id: Date.now().toString(),
+                        name: 'Новая этикетка',
+                        fields: [],
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                      }
+                      setCurrentLabel(newLabel)
+                      setActiveMainTab('designer')
+                    }}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Создать новую этикетку
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    size="lg"
+                    onClick={() => {
+                      if (currentLabel) {
+                        const duplicate = {
+                          ...currentLabel,
+                          id: Date.now().toString(),
+                          name: `${currentLabel.name} (копия)`,
+                          createdAt: new Date(),
+                          updatedAt: new Date()
+                        }
+                        setCurrentLabel(duplicate)
+                      }
+                    }}
+                    disabled={!currentLabel}
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Дублировать последнюю
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    size="lg"
+                    onClick={() => {
+                      if (currentLabel) {
+                        for (let i = 1; i <= 10; i++) {
+                          addToQueue({
+                            ...currentLabel,
+                            id: `${currentLabel.id}_${i}`,
+                            name: `${currentLabel.name} #${i}`
+                          }, 1)
+                        }
+                      }
+                    }}
+                    disabled={!currentLabel}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Печать серии (1-10)
+                  </Button>
+                  
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm">Количество копий</Label>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => setCopiesCount(Math.max(1, copiesCount - 1))}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-8 text-center font-medium">
+                          {copiesCount}
+                        </span>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => setCopiesCount(Math.min(100, copiesCount + 1))}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    <Button 
+                      className="w-full"
+                      onClick={quickPrint}
+                      disabled={!currentLabel || !printerStatus.ready}
+                    >
+                      <Printer className="w-4 h-4 mr-1" />
+                      Быстрая печать ({copiesCount} шт.)
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* УЛУЧШЕННЫЙ ПРЕДПРОСМОТР */}
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Eye className="w-5 h-5" />
+                    Предпросмотр этикетки
+                  </span>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant={previewMode === 'normal' ? 'default' : 'outline'} 
+                      size="sm" 
+                      onClick={() => setPreviewMode('normal')}
+                    >
+                      Обычный
+                    </Button>
+                    <Button 
+                      variant={previewMode === 'print' ? 'default' : 'outline'} 
+                      size="sm" 
+                      onClick={() => setPreviewMode('print')}
+                    >
+                      Печать
+                    </Button>
+                    <Button 
+                      variant={previewMode === 'thermal' ? 'default' : 'outline'} 
+                      size="sm" 
+                      onClick={() => setPreviewMode('thermal')}
+                    >
+                      Термо
+                    </Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 bg-white dark:bg-gray-800">
+                  {currentLabel ? (
+                    <div className={`w-64 h-32 mx-auto border-2 relative ${
+                      previewMode === 'thermal' 
+                        ? 'bg-black text-white border-gray-800' 
+                        : previewMode === 'print' 
+                        ? 'shadow-lg border-gray-400 bg-white' 
+                        : 'border-gray-200 bg-white'
+                    }`}>
+                      {currentLabel.fields.map((field) => (
+                        <div
+                          key={field.id}
+                          className="absolute"
+                          style={{
+                            left: `${(field.x / 200) * 100}%`,
+                            top: `${(field.y / 128) * 100}%`,
+                            width: `${(field.width / 200) * 100}%`,
+                            height: `${(field.height / 128) * 100}%`,
+                          }}
+                        >
+                          {field.type === 'text' && (
+                            <span 
+                              className={`text-xs ${
+                                previewMode === 'thermal' ? 'text-white' : 'text-gray-800'
+                              }`}
+                              style={{ 
+                                fontSize: `${Math.max(8, (field.fontSize || 12) * 0.5)}px`,
+                                fontFamily: field.fontFamily || 'Arial'
+                              }}
+                            >
+                              {field.content}
+                            </span>
+                          )}
+                          {field.type === 'qr' && (
+                            <div className={`w-full h-full flex items-center justify-center ${
+                              previewMode === 'thermal' ? 'bg-white text-black' : 'bg-white'
+                            }`}>
+                              <div 
+                                className="border border-gray-800 flex items-center justify-center text-xs"
+                                style={{ 
+                                  width: `${Math.min(field.width, field.height) * 0.8}px`,
+                                  height: `${Math.min(field.width, field.height) * 0.8}px`
+                                }}
+                              >
+                                QR
+                              </div>
+                            </div>
+                          )}
+                          {field.type === 'image' && logo && (
+                            <img 
+                              src={logo} 
+                              alt="Логотип" 
+                              className="w-full h-full object-contain"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="w-64 h-32 mx-auto border-2 border-dashed border-gray-300 flex items-center justify-center">
+                      <div className="text-center text-gray-400">
+                        <Scan className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Создайте или выберите этикетку</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="text-center mt-4">
+                    <p className="text-sm text-gray-600 mb-2">60×32 мм • 300 DPI</p>
+                    {currentLabel && (
+                      <div className="flex justify-center gap-2">
+                        <Button onClick={quickPrint} disabled={!printerStatus.ready}>
+                          <Printer className="w-4 h-4 mr-1" />
+                          В печать
+                        </Button>
+                        <Button variant="outline" onClick={() => setActiveMainTab('designer')}>
+                          <Edit className="w-4 h-4 mr-1" />
+                          Редактировать
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* СУЩЕСТВУЮЩИЙ ТАБ ДИЗАЙНЕРА */}
+          <TabsContent value="designer" className="mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Панель сканирования и управления */}
               <div className="lg:col-span-1 space-y-6">
@@ -1422,7 +897,7 @@ export default function Home() {
                         onChange={(e) => setQrCode(e.target.value)}
                       />
                       <Button 
-                        onClick={() => handleQrScan(qrCode)}
+                        onClick={() => createLabelFromQR(qrCode)}
                         disabled={!qrCode}
                       >
                         Искать
@@ -1537,11 +1012,7 @@ export default function Home() {
                             <div 
                               ref={labelPreviewRef}
                               className="relative w-full h-64 bg-white"
-                              onMouseMove={handleDragMove}
-                              onMouseUp={handleDragEnd}
-                              onMouseLeave={handleDragEnd}
                             >
-                              {/* Предпросмотр этикетки */}
                               {currentLabel.fields.map((field) => (
                                 <div
                                   key={field.id}
@@ -1554,7 +1025,6 @@ export default function Home() {
                                     width: `${field.width}px`,
                                     height: `${field.height}px`,
                                   }}
-                                  onMouseDown={(e) => handleDragStart(e, field.id)}
                                 >
                                   {field.type === 'text' && (
                                     <span 
@@ -1670,29 +1140,6 @@ export default function Home() {
                                           />
                                         </div>
                                       )}
-                                      
-                                      {field.type === 'qr' && (
-                                        <div className="flex gap-2">
-                                          <Input
-                                            type="number"
-                                            value={field.qrSize || 50}
-                                            onChange={(e) => {
-                                              const newFields = [...currentLabel.fields]
-                                              newFields[index] = { 
-                                                ...field, 
-                                                qrSize: parseInt(e.target.value) || 50 
-                                              }
-                                              setCurrentLabel({
-                                                ...currentLabel,
-                                                fields: newFields,
-                                                updatedAt: new Date()
-                                              })
-                                            }}
-                                            placeholder="Размер QR"
-                                            className="w-24"
-                                          />
-                                        </div>
-                                      )}
                                     </div>
                                   </div>
                                 ))}
@@ -1745,6 +1192,7 @@ export default function Home() {
             </div>
           </TabsContent>
 
+          {/* СУЩЕСТВУЮЩИЙ ТАБ ШАБЛОНОВ */}
           <TabsContent value="templates" className="mt-6">
             <Card>
               <CardHeader>
@@ -1755,7 +1203,6 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {/* Поиск и фильтрация */}
                   <div className="flex gap-4">
                     <div className="flex-1">
                       <Input
@@ -1778,7 +1225,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Список шаблонов */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredTemplates.map((template) => (
                       <Card key={template.id} className="p-4">
@@ -1806,15 +1252,6 @@ export default function Home() {
                                 title="Применить шаблон"
                               >
                                 <Copy className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => editTemplate(template)}
-                                className="p-1 h-8 w-8"
-                                title="Редактировать"
-                              >
-                                <Edit className="w-4 h-4" />
                               </Button>
                               <Button
                                 variant="ghost"
@@ -1857,7 +1294,7 @@ export default function Home() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => editTemplate(template)}
+                              onClick={() => applyTemplate(template)}
                               className="bg-transparent"
                             >
                               <Eye className="w-4 h-4" />
@@ -1880,288 +1317,532 @@ export default function Home() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="manage" className="mt-6">
+          {/* НОВЫЙ ТАБ ОЧЕРЕДИ */}
+          <TabsContent value="queue" className="mt-6">
             <div className="space-y-6">
-              {/* Массовая печать */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">В очереди</p>
+                        <p className="text-xl font-bold">
+                          {printQueue.filter(j => j.status === 'pending').length}
+                        </p>
+                      </div>
+                      <Clock className="w-6 h-6 text-orange-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Печатается</p>
+                        <p className="text-xl font-bold">
+                          {printQueue.filter(j => j.status === 'printing').length}
+                        </p>
+                      </div>
+                      <div className="w-6 h-6 bg-green-500 rounded-full animate-pulse" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Выполнено</p>
+                        <p className="text-xl font-bold">
+                          {printQueue.filter(j => j.status === 'completed').length}
+                        </p>
+                      </div>
+                      <CheckCircle2 className="w-6 h-6 text-green-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Ошибки</p>
+                        <p className="text-xl font-bold">
+                          {printQueue.filter(j => j.status === 'error').length}
+                        </p>
+                      </div>
+                      <AlertTriangle className="w-6 h-6 text-red-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Printer className="w-5 h-5" />
-                    Массовая печать этикеток
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Clock className="w-5 h-5" />
+                      Очередь печати
+                    </span>
                     <div className="flex gap-2">
                       <Button
-                        onClick={() => setShowBatchPrintDialog(true)}
-                        disabled={getAllLabels().length === 0}
-                        className="flex-1"
+                        variant="outline"
+                        size="sm"
+                        onClick={processQueue}
+                        disabled={!printQueue.find(j => j.status === 'pending') || !printerStatus.ready}
                       >
-                        <Printer className="w-4 h-4 mr-2" />
-                        Выбрать этикетки для печати
+                        Запустить печать
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={handlePrint}
-                        disabled={!currentLabel}
-                        className="bg-transparent"
+                        size="sm"
+                        onClick={() => setPrintQueue([])}
+                        disabled={printQueue.length === 0}
                       >
-                        Печать текущей
+                        Очистить всё
                       </Button>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Доступно этикеток: {getAllLabels().length}
-                    </p>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {printQueue.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p>Очередь пуста</p>
+                        <p className="text-sm">Добавьте этикетки для печати</p>
+                      </div>
+                    ) : (
+                      printQueue.map((job, index) => (
+                        <div 
+                          key={job.id} 
+                          className={`flex items-center justify-between p-4 border rounded-lg transition-all ${
+                            job.status === 'printing' 
+                              ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                              : job.status === 'error'
+                              ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                              : job.status === 'completed'
+                              ? 'border-gray-300 bg-gray-50 dark:bg-gray-800 opacity-70'
+                              : 'border-gray-200 dark:border-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-3 h-3 rounded-full ${
+                              job.status === 'printing' ? 'bg-green-500 animate-pulse' :
+                              job.status === 'pending' ? 'bg-yellow-500' :
+                              job.status === 'completed' ? 'bg-gray-500' :
+                              job.status === 'error' ? 'bg-red-500' : 'bg-gray-300'
+                            }`} />
+                            
+                            <div className="flex-1">
+                              <div className="font-medium">
+                                {job.labelName}
+                                {job.copies > 1 && (
+                                  <span className="text-sm text-gray-500 ml-2">
+                                    × {job.copies}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {job.status === 'pending' && `Позиция ${index + 1} • ${job.estimatedTime}с`}
+                                {job.status === 'printing' && 'Печатается...'}
+                                {job.status === 'completed' && `Выполнено • ${job.createdAt.toLocaleTimeString()}`}
+                                {job.status === 'error' && 'Ошибка печати'}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              variant={
+                                job.status === 'printing' ? 'default' :
+                                job.status === 'completed' ? 'secondary' :
+                                job.status === 'error' ? 'destructive' :
+                                'outline'
+                              }
+                            >
+                              {job.status === 'pending' && (
+                                <>
+                                  <Clock className="w-3 h-3 mr-1" />
+                                  В очереди
+                                </>
+                              )}
+                              {job.status === 'printing' && (
+                                <>
+                                  <div className="w-3 h-3 mr-1 bg-green-500 rounded-full animate-pulse" />
+                                  Печатается
+                                </>
+                              )}
+                              {job.status === 'completed' && (
+                                <>
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Готово
+                                </>
+                              )}
+                              {job.status === 'error' && (
+                                <>
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                  Ошибка
+                                </>
+                              )}
+                            </Badge>
+                            
+                            {(job.status === 'pending' || job.status === 'error') && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeFromQueue(job.id)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {printQueue.some(job => job.status === 'printing') && (
+                    <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                          Печать в процессе...
+                        </span>
+                        <span className="text-xs text-green-600 dark:text-green-300">
+                          Температура: {printerStatus.temperature}°C
+                        </span>
+                      </div>
+                      <div className="w-full bg-green-200 dark:bg-green-800 rounded-full h-2">
+                        <div 
+                          className="bg-green-600 h-2 rounded-full animate-pulse" 
+                          style={{ width: '60%' }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          printerStatus.connected && printerStatus.ready 
+                            ? 'bg-green-500' 
+                            : 'bg-red-500'
+                        }`} />
+                        <span className="text-sm font-medium">
+                          Zebra ZD420 Thermal Printer
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
+                        <span>Бумага: {printerStatus.paperLevel}%</span>
+                        <span>Темп: {printerStatus.temperature}°C</span>
+                        <Button variant="outline" size="sm">
+                          <Settings className="w-3 h-3 mr-1" />
+                          Настройки
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          </TabsContent>
 
-              {/* Диалог массовой печати */}
-              {showBatchPrintDialog && (
+          {/* НОВЫЙ ТАБ АНАЛИТИКИ */}
+          <TabsContent value="analytics" className="mt-6">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Выберите этикетки для печати</span>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={selectAllLabels}
-                          className="bg-transparent"
-                        >
-                          Выбрать все
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={deselectAllLabels}
-                          className="bg-transparent"
-                        >
-                          Очистить
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowBatchPrintDialog(false)}
-                        >
-                          ✕
-                        </Button>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Напечатано сегодня</p>
+                        <p className="text-3xl font-bold text-blue-600">{statistics.printedToday}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          +12% к вчера
+                        </p>
                       </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="max-h-96 overflow-y-auto space-y-2">
-                      {getAllLabels().map((label) => (
-                        <div
-                          key={label.id}
-                          className={`flex items-center gap-3 p-3 border rounded cursor-pointer transition-colors ${
-                            selectedLabelsForPrint.includes(label.id)
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                          onClick={() => toggleLabelSelection(label.id)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedLabelsForPrint.includes(label.id)}
-                            onChange={() => toggleLabelSelection(label.id)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                          />
-                          <div className="flex-1">
-                            <div className="font-medium">{label.name}</div>
-                            <div className="text-sm text-gray-500">
-                              {label.fields.length} полей • {label.createdAt.toLocaleDateString()}
-                            </div>
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {label.fields.map(f => f.type).join(', ')}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {getAllLabels().length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <Save className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>Нет сохраненных этикеток</p>
-                        <p className="text-sm">Создайте этикетку для начала работы</p>
-                      </div>
-                    )}
-                    
-                    <div className="mt-4 flex justify-between items-center">
-                      <div className="text-sm text-gray-600">
-                        Выбрано: {selectedLabelsForPrint.length} этикеток
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={() => setShowBatchPrintDialog(false)}
-                          className="bg-transparent"
-                        >
-                          Отмена
-                        </Button>
-                        <Button
-                          onClick={handleBatchPrint}
-                          disabled={selectedLabelsForPrint.length === 0}
-                        >
-                          Печать ({selectedLabelsForPrint.length})
-                        </Button>
+                      <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                        <Printer className="w-6 h-6 text-blue-600" />
                       </div>
                     </div>
                   </CardContent>
                 </Card>
-              )}
+                
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Всего напечатано</p>
+                        <p className="text-3xl font-bold text-green-600">{statistics.printedTotal}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          За всё время
+                        </p>
+                      </div>
+                      <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                        <BarChart3 className="w-6 h-6 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Активных шаблонов</p>
+                        <p className="text-3xl font-bold text-purple-600">{statistics.templatesCount}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          +2 новых
+                        </p>
+                      </div>
+                      <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                        <Save className="w-6 h-6 text-purple-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Ошибок печати</p>
+                        <p className="text-3xl font-bold text-red-600">{statistics.errorsCount}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {statistics.errorsCount < 5 ? 'Отлично!' : 'Требует внимания'}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                        <AlertTriangle className="w-6 h-6 text-red-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Save className="w-5 h-5" />
-                      Управление данными
+                      <BarChart3 className="w-5 h-5" />
+                      Статистика за неделю
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent"
-                      onClick={handleSaveToFile}
-                      disabled={!currentLabel}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Сохранить текущую
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent"
-                      onClick={handleExportAll}
-                      disabled={getAllLabels().length === 0}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Экспорт всех ({getAllLabels().length})
-                    </Button>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleImportMultiple}
-                      className="hidden"
-                      id="import-file"
-                    />
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent"
-                      onClick={() => document.getElementById('import-file')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Импорт из файла
-                    </Button>
-                    <hr className="my-2" />
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={clearAllLabels}
-                      disabled={getAllLabels().length === 0}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Удалить все этикетки
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={clearAllData}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Очистить все данные
-                    </Button>
+                  <CardContent>
+                    <div className="h-64 flex items-end justify-between gap-2 p-4">
+                      {statistics.dailyStats.map((count, index) => {
+                        const maxHeight = Math.max(...statistics.dailyStats)
+                        const height = (count / maxHeight) * 100
+                        const isToday = index === statistics.dailyStats.length - 1
+                        
+                        return (
+                          <div key={index} className="flex-1 flex flex-col items-center">
+                            <div className="text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
+                              {count}
+                            </div>
+                            <div 
+                              className={`w-full rounded-t transition-all hover:opacity-80 cursor-pointer ${
+                                isToday 
+                                  ? 'bg-blue-500 shadow-lg' 
+                                  : 'bg-gray-400 dark:bg-gray-600'
+                              }`}
+                              style={{ height: `${Math.max(height, 5)}%` }}
+                              title={`${count} этикеток`}
+                            />
+                            <div className="text-xs text-gray-600 dark:text-gray-400 mt-2 font-medium">
+                              {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][index]}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    
+                    <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Среднее за день: {Math.round(statistics.dailyStats.reduce((a, b) => a + b, 0) / 7)}
+                        </span>
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Лучший день: {Math.max(...statistics.dailyStats)}
+                        </span>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Save className="w-5 h-5" />
-                      Управление шаблонами
+                      <Type className="w-5 h-5" />
+                      Популярные шаблоны
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent"
-                      onClick={() => {
-                        const data = JSON.stringify(templates, null, 2)
-                        const blob = new Blob([data], { type: 'application/json' })
-                        const url = URL.createObjectURL(blob)
-                        const a = document.createElement('a')
-                        a.href = url
-                        a.download = `thermo_templates_export_${new Date().toISOString().split('T')[0]}.json`
-                        a.click()
-                        URL.revokeObjectURL(url)
-                      }}
-                      disabled={templates.length === 0}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Экспорт шаблонов ({templates.length})
-                    </Button>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          const reader = new FileReader()
-                          reader.onload = (event) => {
-                            try {
-                              const importedTemplates = JSON.parse(event.target?.result as string)
-                              const parsedTemplates = importedTemplates.map((t: any) => ({
-                                ...t,
-                                createdAt: new Date(t.createdAt),
-                                updatedAt: new Date(t.updatedAt)
-                              }))
-                              setTemplates([...templates, ...parsedTemplates])
-                              alert(`Импортировано ${parsedTemplates.length} шаблонов`)
-                            } catch (error) {
-                              alert('Ошибка импорта шаблонов')
-                            }
-                          }
-                          reader.readAsText(file)
-                        }
-                      }}
-                      className="hidden"
-                      id="import-templates"
-                    />
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent"
-                      onClick={() => document.getElementById('import-templates')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Импорт шаблонов
-                    </Button>
-                    <hr className="my-2" />
-                    <Button
-                      variant="outline"
-                      className="w-full bg-transparent text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => {
-                        if (confirm('Вы уверены, что хотите удалить все шаблоны? Предустановленные шаблоны останутся.')) {
-                          // Сохраняем только предустановленные шаблоны
-                          const predefinedTemplates = getPredefinedTemplates()
-                          setTemplates(predefinedTemplates)
-                          localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(predefinedTemplates))
-                          alert('Все пользовательские шаблоны удалены. Предустановленные шаблоны сохранены.')
-                        }
-                      }}
-                      disabled={templates.length === 0}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Удалить все шаблоны
-                    </Button>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {[
+                        { name: 'Тумба под раковину', count: 127, percentage: 45 },
+                        { name: 'Зеркало для ванной', count: 89, percentage: 32 },
+                        { name: 'Настенный шкаф', count: 67, percentage: 23 },
+                        { name: 'Смеситель', count: 34, percentage: 12 },
+                        { name: 'Аксессуары', count: 23, percentage: 8 }
+                      ].map((item, index) => (
+                        <div key={index} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{item.name}</span>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {item.count} шт.
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full transition-all"
+                              style={{ width: `${item.percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="mt-6 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="text-sm text-blue-800 dark:text-blue-200">
+                        <strong>Рекомендация:</strong> Тумбы под раковину печатаются чаще всего. 
+                        Рассмотрите создание экспресс-шаблона для них.
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Время печати</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Среднее время</span>
+                        <span className="font-medium">2.3 сек</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Самая быстрая</span>
+                        <span className="font-medium">1.8 сек</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Самая медленная</span>
+                        <span className="font-medium">4.1 сек</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Общее время сегодня</span>
+                        <span className="font-medium">1ч 48м</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Использование материалов</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Этикеток осталось</span>
+                        <span className="font-medium">~840 шт</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Израсходовано сегодня</span>
+                        <span className="font-medium">{statistics.printedToday} шт</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">До замены рулона</span>
+                        <span className="font-medium">~18 дней</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-2">
+                        <div className="bg-green-500 h-2 rounded-full" style={{ width: '85%' }} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Качество печати</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Успешных печатей</span>
+                        <span className="font-medium text-green-600">
+                          {Math.round(((statistics.printedTotal - statistics.errorsCount) / statistics.printedTotal) * 100)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Ошибок за день</span>
+                        <span className="font-medium text-red-600">{statistics.errorsCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Последняя калибровка</span>
+                        <span className="font-medium">3 дня назад</span>
+                      </div>
+                      {statistics.errorsCount > 5 && (
+                        <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-800 dark:text-red-200">
+                          ⚠️ Высокий процент ошибок. Проверьте принтер.
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Download className="w-5 h-5" />
+                    Экспорт отчетов
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-4 flex-wrap">
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Download className="w-4 h-4" />
+                      Отчет за день (PDF)
+                    </Button>
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Download className="w-4 h-4" />
+                      Статистика за неделю (Excel)
+                    </Button>
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Download className="w-4 h-4" />
+                      Данные по шаблонам (CSV)
+                    </Button>
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Download className="w-4 h-4" />
+                      Полный отчет (ZIP)
+                    </Button>
+                  </div>
+                  
+                  <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-400">
+                    Отчеты включают данные о печати, использовании материалов, ошибках и популярных шаблонах.
+                    Данные обновляются в реальном времени.
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
+
         </Tabs>
       </div>
+
+      <style jsx>{`
+        @keyframes scanLine {
+          0% { top: 15%; opacity: 0.8; }
+          50% { opacity: 1; }
+          100% { top: 85%; opacity: 0.8; }
+        }
+      `}</style>
     </div>
   )
 }

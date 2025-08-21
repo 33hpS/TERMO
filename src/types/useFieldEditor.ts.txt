@@ -1,0 +1,388 @@
+// src/hooks/useFieldEditor.ts
+import { useState, useCallback, useRef } from 'react';
+import { EditorField, LabelCanvas, DragState, ResizeDirection } from '@/types/editor';
+
+export function useFieldEditor(initialCanvas: LabelCanvas) {
+  const [fields, setFields] = useState<EditorField[]>([]);
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [canvas, setCanvas] = useState<LabelCanvas>(initialCanvas);
+  const [dragState, setDragState] = useState<DragState>({
+    isDragging: false,
+    isResizing: false,
+    draggedFieldId: null,
+    startPosition: { x: 0, y: 0 },
+    startSize: { width: 0, height: 0 }
+  });
+
+  // Добавление нового поля
+  const addField = useCallback((type: EditorField['type'], position?: { x: number; y: number }) => {
+    const newField: EditorField = {
+      id: Date.now().toString(),
+      type,
+      content: type === 'text' ? 'Новый текст' : type === 'qr' ? 'QR-данные' : 'Содержимое',
+      x: position?.x || 50,
+      y: position?.y || 50,
+      width: type === 'text' ? 120 : 80,
+      height: type === 'text' ? 30 : 80,
+      fontSize: type === 'text' ? 14 : undefined,
+      fontFamily: type === 'text' ? 'Arial' : undefined,
+      zIndex: fields.length + 1
+    };
+    
+    setFields(prev => [...prev, newField]);
+    setSelectedFieldId(newField.id);
+    return newField.id;
+  }, [fields.length]);
+
+  // Обновление поля
+  const updateField = useCallback((fieldId: string, updates: Partial<EditorField>) => {
+    setFields(prev => prev.map(field => 
+      field.id === fieldId ? { ...field, ...updates } : field
+    ));
+  }, []);
+
+  // Удаление поля
+  const removeField = useCallback((fieldId: string) => {
+    setFields(prev => prev.filter(field => field.id !== fieldId));
+    if (selectedFieldId === fieldId) {
+      setSelectedFieldId(null);
+    }
+  }, [selectedFieldId]);
+
+  // Дублирование поля
+  const duplicateField = useCallback((fieldId: string) => {
+    const fieldToDuplicate = fields.find(f => f.id === fieldId);
+    if (!fieldToDuplicate) return;
+
+    const newField: EditorField = {
+      ...fieldToDuplicate,
+      id: Date.now().toString(),
+      x: fieldToDuplicate.x + 20,
+      y: fieldToDuplicate.y + 20,
+      zIndex: fields.length + 1
+    };
+
+    setFields(prev => [...prev, newField]);
+    setSelectedFieldId(newField.id);
+    return newField.id;
+  }, [fields]);
+
+  // Изменение z-index (слои)
+  const moveFieldToFront = useCallback((fieldId: string) => {
+    const maxZIndex = Math.max(...fields.map(f => f.zIndex || 0));
+    updateField(fieldId, { zIndex: maxZIndex + 1 });
+  }, [fields, updateField]);
+
+  const moveFieldToBack = useCallback((fieldId: string) => {
+    const minZIndex = Math.min(...fields.map(f => f.zIndex || 0));
+    updateField(fieldId, { zIndex: minZIndex - 1 });
+  }, [fields, updateField]);
+
+  // Выравнивание полей
+  const alignFields = useCallback((fieldIds: string[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+    const targetFields = fields.filter(f => fieldIds.includes(f.id));
+    if (targetFields.length < 2) return;
+
+    const updates: Array<{ id: string; updates: Partial<EditorField> }> = [];
+
+    switch (alignment) {
+      case 'left':
+        const leftX = Math.min(...targetFields.map(f => f.x));
+        targetFields.forEach(field => {
+          updates.push({ id: field.id, updates: { x: leftX } });
+        });
+        break;
+      case 'center':
+        const centerX = targetFields.reduce((sum, f) => sum + f.x + f.width / 2, 0) / targetFields.length;
+        targetFields.forEach(field => {
+          updates.push({ id: field.id, updates: { x: centerX - field.width / 2 } });
+        });
+        break;
+      case 'top':
+        const topY = Math.min(...targetFields.map(f => f.y));
+        targetFields.forEach(field => {
+          updates.push({ id: field.id, updates: { y: topY } });
+        });
+        break;
+      // Добавить остальные случаи...
+    }
+
+    updates.forEach(({ id, updates }) => updateField(id, updates));
+  }, [fields, updateField]);
+
+  // Очистка всех полей
+  const clearFields = useCallback(() => {
+    setFields([]);
+    setSelectedFieldId(null);
+  }, []);
+
+  // Получение выбранного поля
+  const selectedField = fields.find(f => f.id === selectedFieldId) || null;
+
+  return {
+    fields,
+    selectedField,
+    selectedFieldId,
+    canvas,
+    dragState,
+    setFields,
+    setSelectedFieldId,
+    setCanvas,
+    setDragState,
+    addField,
+    updateField,
+    removeField,
+    duplicateField,
+    moveFieldToFront,
+    moveFieldToBack,
+    alignFields,
+    clearFields
+  };
+}
+
+// src/hooks/useDragAndDrop.ts
+import { useCallback, useRef } from 'react';
+import { EditorField, DragState, ResizeDirection } from '@/types/editor';
+
+interface UseDragAndDropProps {
+  fields: EditorField[];
+  canvas: { width: number; height: number };
+  dragState: DragState;
+  setDragState: (state: DragState) => void;
+  updateField: (fieldId: string, updates: Partial<EditorField>) => void;
+  setSelectedFieldId: (id: string | null) => void;
+}
+
+export function useDragAndDrop({
+  fields,
+  canvas,
+  dragState,
+  setDragState,
+  updateField,
+  setSelectedFieldId
+}: UseDragAndDropProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Начало перетаскивания/изменения размера
+  const handleMouseDown = useCallback((
+    e: React.MouseEvent,
+    fieldId: string,
+    action: 'move' | 'resize',
+    resizeDirection?: ResizeDirection
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    setSelectedFieldId(fieldId);
+    setDragState({
+      isDragging: action === 'move',
+      isResizing: action === 'resize',
+      draggedFieldId: fieldId,
+      startPosition: { x: e.clientX, y: e.clientY },
+      startSize: { width: field.width, height: field.height },
+      resizeDirection
+    });
+  }, [fields, setSelectedFieldId, setDragState]);
+
+  // Перемещение мыши
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragState.draggedFieldId || (!dragState.isDragging && !dragState.isResizing)) return;
+
+    const field = fields.find(f => f.id === dragState.draggedFieldId);
+    if (!field || !canvasRef.current) return;
+
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+
+    const deltaX = (e.clientX - dragState.startPosition.x) * scaleX;
+    const deltaY = (e.clientY - dragState.startPosition.y) * scaleY;
+
+    if (dragState.isDragging) {
+      // Перемещение
+      const newX = Math.max(0, Math.min(field.x + deltaX, canvas.width - field.width));
+      const newY = Math.max(0, Math.min(field.y + deltaY, canvas.height - field.height));
+      
+      updateField(field.id, { x: newX, y: newY });
+      
+      setDragState({
+        ...dragState,
+        startPosition: { x: e.clientX, y: e.clientY }
+      });
+    } else if (dragState.isResizing) {
+      // Изменение размера
+      let newWidth = field.width;
+      let newHeight = field.height;
+      let newX = field.x;
+      let newY = field.y;
+
+      switch (dragState.resizeDirection) {
+        case 'se':
+          newWidth = Math.max(20, dragState.startSize.width + deltaX);
+          newHeight = Math.max(20, dragState.startSize.height + deltaY);
+          break;
+        case 'sw':
+          newWidth = Math.max(20, dragState.startSize.width - deltaX);
+          newHeight = Math.max(20, dragState.startSize.height + deltaY);
+          newX = field.x - (newWidth - field.width);
+          break;
+        case 'ne':
+          newWidth = Math.max(20, dragState.startSize.width + deltaX);
+          newHeight = Math.max(20, dragState.startSize.height - deltaY);
+          newY = field.y - (newHeight - field.height);
+          break;
+        case 'nw':
+          newWidth = Math.max(20, dragState.startSize.width - deltaX);
+          newHeight = Math.max(20, dragState.startSize.height - deltaY);
+          newX = field.x - (newWidth - field.width);
+          newY = field.y - (newHeight - field.height);
+          break;
+        case 'e':
+          newWidth = Math.max(20, dragState.startSize.width + deltaX);
+          break;
+        case 'w':
+          newWidth = Math.max(20, dragState.startSize.width - deltaX);
+          newX = field.x - (newWidth - field.width);
+          break;
+        case 'n':
+          newHeight = Math.max(20, dragState.startSize.height - deltaY);
+          newY = field.y - (newHeight - field.height);
+          break;
+        case 's':
+          newHeight = Math.max(20, dragState.startSize.height + deltaY);
+          break;
+      }
+
+      // Ограничения по границам холста
+      newX = Math.max(0, Math.min(newX, canvas.width - newWidth));
+      newY = Math.max(0, Math.min(newY, canvas.height - newHeight));
+      newWidth = Math.min(newWidth, canvas.width - newX);
+      newHeight = Math.min(newHeight, canvas.height - newY);
+
+      updateField(field.id, { x: newX, y: newY, width: newWidth, height: newHeight });
+    }
+  }, [dragState, fields, canvas, updateField]);
+
+  // Окончание перетаскивания
+  const handleMouseUp = useCallback(() => {
+    setDragState({
+      isDragging: false,
+      isResizing: false,
+      draggedFieldId: null,
+      startPosition: { x: 0, y: 0 },
+      startSize: { width: 0, height: 0 }
+    });
+  }, [setDragState]);
+
+  return {
+    canvasRef,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp
+  };
+}
+
+// src/hooks/useThermalPrinter.ts
+import { useState, useCallback } from 'react';
+import { ThermalPrinterConfig, PrintJob } from '@/types/printer';
+import { ThermalPrinterEngine } from '@/lib/thermal-printer';
+
+export function useThermalPrinter() {
+  const [printerConfig, setPrinterConfig] = useState<ThermalPrinterConfig>({
+    type: 'zebra',
+    connectionType: 'network',
+    dpi: 203,
+    labelWidth: 100,
+    labelHeight: 150,
+    speed: 6,
+    darkness: 10,
+    orientation: 'portrait'
+  });
+
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Создание задания печати
+  const createPrintJob = useCallback(async (labelId: string, fields: any[]) => {
+    const job: PrintJob = {
+      id: Date.now().toString(),
+      labelId,
+      printerConfig,
+      status: 'pending',
+      createdAt: new Date()
+    };
+
+    setPrintJobs(prev => [...prev, job]);
+
+    try {
+      const printer = new ThermalPrinterEngine(printerConfig);
+      const commands = printer.generatePrintCommands(fields);
+      
+      // Обновляем статус
+      setPrintJobs(prev => prev.map(j => 
+        j.id === job.id ? { ...j, status: 'printing' } : j
+      ));
+
+      // Отправляем на печать
+      const success = await printer.sendToPrinter(commands, printerConfig.ipAddress);
+      
+      setPrintJobs(prev => prev.map(j => 
+        j.id === job.id ? { 
+          ...j, 
+          status: success ? 'completed' : 'failed',
+          completedAt: new Date(),
+          errorMessage: success ? undefined : 'Ошибка печати'
+        } : j
+      ));
+
+      return success;
+    } catch (error) {
+      setPrintJobs(prev => prev.map(j => 
+        j.id === job.id ? { 
+          ...j, 
+          status: 'failed',
+          completedAt: new Date(),
+          errorMessage: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        } : j
+      ));
+      return false;
+    }
+  }, [printerConfig]);
+
+  // Тестирование подключения
+  const testConnection = useCallback(async () => {
+    try {
+      if (printerConfig.connectionType === 'network' && printerConfig.ipAddress) {
+        const response = await fetch(`http://${printerConfig.ipAddress}:9100`, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(5000)
+        });
+        setIsConnected(response.ok);
+        return response.ok;
+      }
+      return false;
+    } catch (error) {
+      setIsConnected(false);
+      return false;
+    }
+  }, [printerConfig]);
+
+  // Генерация предпросмотра
+  const generatePreview = useCallback((fields: any[]) => {
+    const printer = new ThermalPrinterEngine(printerConfig);
+    return printer.generatePreview(fields);
+  }, [printerConfig]);
+
+  return {
+    printerConfig,
+    setPrinterConfig,
+    printJobs,
+    isConnected,
+    createPrintJob,
+    testConnection,
+    generatePreview
+  };
+}
