@@ -1,3 +1,4 @@
+import React from 'react'
 import { HashRouter, Route, Routes } from 'react-router'
 import HomePage from './pages/Home'
 
