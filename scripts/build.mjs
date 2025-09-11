@@ -1,8 +1,13 @@
 import { build } from 'esbuild'
-import { stylePlugin } from 'esbuild-style-plugin'
+import stylePluginModule from 'esbuild-style-plugin'
 import { rimraf } from 'rimraf'
 import path from 'path'
 import fs from 'fs'
+import tailwindcss from 'tailwindcss'
+import autoprefixer from 'autoprefixer'
+
+// Handle CommonJS module
+const stylePlugin = stylePluginModule.default || stylePluginModule
 
 const isProduction = process.argv.includes('--production')
 
@@ -65,8 +70,8 @@ const buildConfig = {
     stylePlugin({
       postcss: {
         plugins: [
-          require('tailwindcss'),
-          require('autoprefixer')
+          tailwindcss,
+          autoprefixer
         ]
       }
     })
