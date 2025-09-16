@@ -1,9 +1,11 @@
 import { build } from 'esbuild'
-import pkg from 'esbuild-style-plugin'
-const { stylePlugin } = pkg
+import stylePluginPkg from 'esbuild-style-plugin'
 import { rimraf } from 'rimraf'
 import path from 'path'
 import fs from 'fs'
+
+// Handle different export styles for esbuild-style-plugin
+const stylePlugin = stylePluginPkg.stylePlugin || stylePluginPkg.default || stylePluginPkg
 
 const isProduction = process.argv.includes('--production')
 
@@ -49,47 +51,54 @@ const copyStaticFiles = () => {
 copyStaticFiles()
 
 // Конфигурация сборки
-const buildConfig = {
-  entryPoints: ['src/main.tsx'],
-  bundle: true,
-  minify: isProduction,
-  sourcemap: !isProduction,
-  target: 'es2017',
-  platform: 'browser',
-  format: 'esm',
-  splitting: true,
-  outdir: path.join(distDir, 'js'),
-  define: {
-    'process.env.NODE_ENV': isProduction ? '"production"' : '"development"'
-  },
-  plugins: [
-    stylePlugin({
-      postcss: {
-        plugins: [
-          require('tailwindcss'),
-          require('autoprefixer')
-        ]
-      }
-    })
-  ],
-  loader: {
-    '.tsx': 'tsx',
-    '.ts': 'tsx',
-    '.js': 'jsx',
-    '.svg': 'dataurl',
-    '.png': 'dataurl',
-    '.jpg': 'dataurl',
-    '.jpeg': 'dataurl',
-    '.gif': 'dataurl'
-  },
-  resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.json']
+const buildConfig = async () => {
+  // Динамический импорт postcss плагинов
+  const tailwindcss = (await import('tailwindcss')).default
+  const autoprefixer = (await import('autoprefixer')).default
+
+  return {
+    entryPoints: ['src/main.tsx'],
+    bundle: true,
+    minify: isProduction,
+    sourcemap: !isProduction,
+    target: 'es2017',
+    platform: 'browser',
+    format: 'esm',
+    splitting: true,
+    outdir: path.join(distDir, 'js'),
+    define: {
+      'process.env.NODE_ENV': isProduction ? '"production"' : '"development"'
+    },
+    plugins: [
+      stylePlugin({
+        postcss: {
+          plugins: [
+            tailwindcss,
+            autoprefixer
+          ]
+        }
+      })
+    ],
+    loader: {
+      '.tsx': 'tsx',
+      '.ts': 'tsx',
+      '.js': 'jsx',
+      '.svg': 'dataurl',
+      '.png': 'dataurl',
+      '.jpg': 'dataurl',
+      '.jpeg': 'dataurl',
+      '.gif': 'dataurl'
+    },
+    resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.json']
+  }
 }
 
 // Сборка приложения
 async function runBuild() {
   try {
     console.log('🚀 Building application...')
-    await build(buildConfig)
+    const config = await buildConfig()
+    await build(config)
     console.log('✅ Build completed successfully!')
     
     if (isProduction) {
